@@ -54,7 +54,7 @@ jobs:
           ts() { date +%T; }
           Xvfb :99 -screen 0 1000x900x24 >/dev/null 2>&1 &
           export DISPLAY=:99
-          emulator -avd phone -no-window -no-audio -no-boot-anim -no-snapshot -memory 2048 -cores 2 \
+          emulator -avd phone -no-window -no-audio -no-boot-anim -no-snapshot -memory 3072 -cores 4 \
             -gpu swiftshader_indirect -netdelay none -netspeed full \
             > /tmp/emu.log 2>&1 &
           wait_boot() { timeout 480 bash -c 'until adb shell getprop sys.boot_completed 2>/dev/null | grep -q 1; do sleep 5; done'; }
@@ -119,6 +119,8 @@ jobs:
           adb shell settings put system system_locales zh-CN || true
           adb shell setprop persist.sys.timezone Asia/Shanghai || true
           adb shell settings put global auto_time 1
+          # 关掉 ANR/崩溃对话框：swiftshader 下 SystemUI 偶尔 ANR，弹窗会把点击吃掉
+          adb shell settings put global hide_error_dialogs 1
           echo "guest tuned $(ts)"
 
           # 网络判据：VALIDATED（Android shell 的 ping 没有 raw socket 权限，必失败）
