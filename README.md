@@ -54,7 +54,8 @@ GET /api/sh?cmd=<adb shell 命令>     # 返回命令输出
 
 ## 网络
 
-- guest 用模拟器默认 NAT/DNS（不要加 `-dns-server`，会让 guest 丢路由）。
+- guest 用模拟器默认 NAT/DNS（不要加 `-dns-server`）。
+- 判断 guest 有没有网不要用 `ping 8.8.8.8`：Android 的 shell 没有原始套接字权限，ICMP 必失败，看起来像断网。看 `dumpsys connectivity | grep -i NetworkAgentInfo` 里的 `VALIDATED` 和 `Routes: 0.0.0.0/0 -> 10.0.2.2`，或者直接在 Chrome 里开页面。
 - 中文语言：`settings put system system_locales zh-CN`；时区 `setprop persist.sys.timezone Asia/Shanghai`。
 - 出口 IP 是 GitHub（Azure 美国机房）：普通站点能上；风控严格的 App 可能被判定为机房流量。
 
