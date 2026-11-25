@@ -115,15 +115,15 @@ jobs:
           adb shell dumpsys connectivity 2>/dev/null | grep -oE 'InterfaceName: [a-z0-9]+|DnsAddresses: \[[^]]*\]|VALIDATED' | head -6
 
           # TikTok：APKPure 直链，APK 或 XAPK 都处理；时间都封顶，装不上不算 job 失败
-          curl -sL --max-time 240 -A 'Mozilla/5.0 (Linux; Android 14)' -o /tmp/tiktok.bin \
+          curl -sL --max-time 240 -A 'Mozilla/5.0 (Linux; Android 14)' -o /tmp/tiktok.apk \
             'https://d.apkpure.com/b/APK/com.zhiliaoapp.musically?version=latest' || true
-          echo "tiktok dl bytes: $(stat -c%s /tmp/tiktok.bin 2>/dev/null || echo 0) $(ts)"
-          if [ "$(head -c 2 /tmp/tiktok.bin)" = "PK" ]; then
-            rm -rf /tmp/tkx && mkdir /tmp/tkx && unzip -oq /tmp/tiktok.bin -d /tmp/tkx
+          echo "tiktok dl bytes: $(stat -c%s /tmp/tiktok.apk 2>/dev/null || echo 0) $(ts)"
+          if [ "$(head -c 2 /tmp/tiktok.apk)" = "PK" ]; then
+            rm -rf /tmp/tkx && mkdir /tmp/tkx && unzip -oq /tmp/tiktok.apk -d /tmp/tkx
             APKS=$(find /tmp/tkx -name '*.apk' | tr '\n' ' ')
-            if [ -n "$APKS" ]; then timeout 300 adb install-multiple -r $APKS 2>&1 | tail -4; else timeout 300 adb install -r /tmp/tiktok.bin 2>&1 | tail -4; fi
+            if [ -n "$APKS" ]; then timeout 300 adb install-multiple -r $APKS 2>&1 | tail -4; else timeout 300 adb install -r /tmp/tiktok.apk 2>&1 | tail -4; fi
           else
-            timeout 300 adb install -r /tmp/tiktok.bin 2>&1 | tail -4
+            timeout 300 adb install -r /tmp/tiktok.apk 2>&1 | tail -4
           fi
           adb shell pm list packages | grep musically || echo "tiktok not installed"
           adb shell monkey -p com.zhiliaoapp.musically -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
