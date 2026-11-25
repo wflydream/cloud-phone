@@ -73,15 +73,14 @@ jobs:
           curl -sL --max-time 180 -A 'Mozilla/5.0 (Linux; Android 14)' -o /tmp/tiktok.bin \
             'https://d.apkpure.com/b/APK/com.zhiliaoapp.musically?version=latest' || true
           echo "tiktok dl bytes: $(stat -c%s /tmp/tiktok.bin 2>/dev/null || echo 0)"
-          if unzip -l /tmp/tiktok.bin >/dev/null 2>&1; then
-            if unzip -l /tmp/tiktok.bin | grep -q 'base.apk'; then
-              rm -rf /tmp/tkx && mkdir /tmp/tkx && unzip -q /tmp/tiktok.bin -d /tmp/tkx
-              adb install-multiple -r $(find /tmp/tkx -name '*.apk' | tr '\n' ' ') 2>&1 | tail -3
-            else
-              adb install -r /tmp/tiktok.bin 2>&1 | tail -3
-            fi
+          file /tmp/tiktok.bin; head -c 4 /tmp/tiktok.bin | xxd -p
+          if [ "$(head -c 2 /tmp/tiktok.bin)" = "PK" ]; then
+            rm -rf /tmp/tkx && mkdir /tmp/tkx && unzip -oq /tmp/tiktok.bin -d /tmp/tkx
+            APKS=$(find /tmp/tkx -name '*.apk' | tr '\n' ' ')
+            echo "apk count: $(echo $APKS | wc -w)"
+            if [ -n "$APKS" ]; then adb install-multiple -r $APKS 2>&1 | tail -4; else adb install -r /tmp/tiktok.bin 2>&1 | tail -4; fi
           else
-            echo "tiktok download failed"
+            adb install -r /tmp/tiktok.bin 2>&1 | tail -4
           fi
           adb shell pm list packages | grep -c musically || true
           adb shell monkey -p com.zhiliaoapp.musically -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
