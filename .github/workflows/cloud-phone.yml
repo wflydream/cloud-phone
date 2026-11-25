@@ -92,11 +92,21 @@ jobs:
           URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1)
           [ -n "$URL" ] || { tail -30 /tmp/tunnel.log; exit 1; }
           echo "OPEN: $URL/panel.html" | tee -a "$GITHUB_STEP_SUMMARY"
-          # 把链接发到 state 分支，本机脚本用 API 直接读，不靠扒日志
+          # 把链接发到 state 分支（先走 contents API，失败再 git push），本机脚本用 API 直接读
+          B64=$(printf '%s' "$URL/panel.html" | base64 -w0)
+          OLD=$(GH_TOKEN="$GITHUB_TOKEN" gh api "repos/$GITHUB_REPOSITORY/contents/state/url.txt?ref=state" -q .sha 2>/dev/null || true)
+          for i in 1 2 3; do
+            if GH_TOKEN="$GITHUB_TOKEN" gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/state/url.txt" \
+                 -f message="url $GITHUB_RUN_ID" -f content="$B64" ${OLD:+-f sha="$OLD"} -f branch=state >/dev/null 2>&1; then
+              echo "url published via api"; break
+            fi
+            sleep 3
+          done
+          if [ -z "${OLD:-}" ] || true; then :; fi
           mkdir -p state && printf '%s\n' "$URL/panel.html" > state/url.txt
           git add state/url.txt
           git -c user.name=cloud-phone -c user.email=cloud-phone@users.noreply.github.com \
-            commit -qm "url $GITHUB_RUN_ID" && git push -q origin HEAD:state || echo "publish url failed"
+            commit -qm "url $GITHUB_RUN_ID" 2>/dev/null; git push -q origin HEAD:state 2>/dev/null || echo "git push url failed (api 可能已成功)"
           # TikTok：APKPure 直链（APK，失败再试 XAPK 解包安装）；装不上不算失败，Chrome 里也能开 tiktok.com
           curl -sL --max-time 180 -A 'Mozilla/5.0 (Linux; Android 14)' -o /tmp/tiktok.bin \
             'https://d.apkpure.com/b/APK/com.zhiliaoapp.musically?version=latest' || true
