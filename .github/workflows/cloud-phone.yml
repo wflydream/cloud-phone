@@ -3,13 +3,14 @@ on:
   workflow_dispatch:
     inputs:
       minutes:
-        description: "Keep the phone alive for N minutes (max 55)"
-        default: "45"
+        description: "Keep the phone alive for N minutes"
+        default: "50"
 jobs:
   phone:
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 350
     steps:
+      - uses: actions/checkout@v4
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -17,7 +18,7 @@ jobs:
       - name: Packages
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb x11vnc novnc websockify scrcpy >/dev/null
+          sudo apt-get install -y -qq xvfb x11vnc novnc websockify scrcpy nginx >/dev/null
       - name: Env
         run: |
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
@@ -25,40 +26,62 @@ jobs:
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
       - name: AVD
         run: |
-          echo "$ANDROID_HOME" ; ls "$ANDROID_HOME"
           sdkmanager --licenses <<< "y" >/dev/null 2>&1 || true
           sdkmanager "system-images;android-34;google_apis;x86_64" 2>&1 | tail -3
-          avdmanager list device -c | tr '\n' ' ' | head -c 600; echo
           DEV=$(avdmanager list device -c | grep -qx pixel_6 && echo pixel_6 || echo pixel)
           echo no | avdmanager create avd -n phone -k "system-images;android-34;google_apis;x86_64" -d "$DEV" || true
-          avdmanager list avd
           AVD_DIR=$(avdmanager list avd | sed -n 's/.*Path: \(.*\)\/[^/]*$/\1/p' | head -1)
-          echo "avd dir: $AVD_DIR"
           echo "ANDROID_AVD_HOME=$AVD_DIR" >> "$GITHUB_ENV"
           ANDROID_AVD_HOME="$AVD_DIR" emulator -list-avds | tee /tmp/avds.txt
           grep -qx phone /tmp/avds.txt
-      - name: Phone on :99 + browser VNC
+      - name: Phone + panel
         env: { MINUTES: "${{ inputs.minutes }}" }
         run: |
           Xvfb :99 -screen 0 1000x900x24 >/dev/null 2>&1 &
           export DISPLAY=:99
-          emulator -avd phone -no-window -no-audio -no-boot-anim -no-snapshot -memory 3072 -gpu swiftshader_indirect > /tmp/emu.log 2>&1 &
-          if ! timeout 420 bash -c 'until adb shell getprop sys.boot_completed 2>/dev/null | grep -q 1; do sleep 5; done'; then
-            echo "BOOT FAILED"; tail -40 /tmp/emu.log; exit 1
-          fi
-          adb shell input keyevent KEYCODE_WAKEUP; adb shell wm dismiss-keyguard || true
+          emulator -avd phone -no-window -no-audio -no-boot-anim -no-snapshot -memory 2048 -cores 2 \
+            -gpu swiftshader_indirect -dns-server 1.1.1.1,8.8.8.8 -netdelay none -netspeed full \
+            > /tmp/emu.log 2>&1 &
+          wait_boot() { timeout 420 bash -c 'until adb shell getprop sys.boot_completed 2>/dev/null | grep -q 1; do sleep 5; done'; }
+          if ! wait_boot; then echo "BOOT FAILED"; tail -40 /tmp/emu.log; exit 1; fi
+
+          adb root >/dev/null 2>&1; sleep 3
+          adb shell setprop persist.sys.locale zh-CN
+          adb shell setprop persist.sys.timezone Asia/Shanghai
+          adb reboot
+          sleep 5
+          if ! wait_boot; then echo "REBOOT FAILED"; tail -40 /tmp/emu.log; exit 1; fi
+
           adb shell wm size 720x1280; adb shell wm density 320
+          for s in window_animation_scale transition_animation_scale animator_duration_scale; do adb shell settings put global $s 0; done
+          adb shell input keyevent KEYCODE_WAKEUP; adb shell wm dismiss-keyguard || true
+          adb shell settings put global auto_time 1
+
+          echo "=== net checks"
+          adb shell getprop net.dns1
+          adb shell ping -c 1 -W 3 1.1.1.1 | tail -2
+          adb shell ping -c 1 -W 3 www.google.com | tail -2
+
           curl -sL -o /tmp/fdroid.apk https://f-droid.org/F-Droid.apk && adb install -r /tmp/fdroid.apk >/dev/null 2>&1 || true
+
           LIBGL_ALWAYS_SOFTWARE=1 SDL_RENDER_DRIVER=software scrcpy --max-size 720 --max-fps 30 --bit-rate 2M --no-audio --window-title phone > /tmp/scrcpy.log 2>&1 &
-          sleep 10
+          sleep 8
           pgrep -a scrcpy || { echo "SCRCPY PROBLEM"; tail -20 /tmp/scrcpy.log; }
+
           x11vnc -display :99 -forever -shared -nopw -rfbport 5900 -quiet -wait 5 -defer 0 > /tmp/x11vnc.log 2>&1 &
           websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/websockify.log 2>&1 &
+          cp panel.html /usr/share/novnc/panel.html
+          python3 control.py > /tmp/control.log 2>&1 &
+          sudo nginx -c "$PWD/nginx.conf" -g 'daemon off;' > /tmp/nginx.log 2>&1 &
+          sleep 3
+          curl -s -o /dev/null -w 'panel http=%{http_code}\n' http://127.0.0.1:8080/panel.html
+          curl -s http://127.0.0.1:8080/api/cmd?c=home; echo
+
           curl -sL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x /tmp/cloudflared
-          /tmp/cloudflared tunnel --url http://localhost:6080 --no-autoupdate --protocol http2 > /tmp/tunnel.log 2>&1 &
+          /tmp/cloudflared tunnel --url http://localhost:8080 --no-autoupdate --protocol http2 > /tmp/tunnel.log 2>&1 &
           for i in $(seq 1 90); do grep -qE "https://[a-z0-9-]+\.trycloudflare\.com" /tmp/tunnel.log && break; sleep 2; done
           URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1)
           [ -n "$URL" ] || { tail -30 /tmp/tunnel.log; exit 1; }
-          echo "OPEN: $URL/vnc.html?autoconnect=true&resize=scale&reconnect=true" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "OPEN: $URL/panel.html" | tee -a "$GITHUB_STEP_SUMMARY"
           sleep "${MINUTES}m"
