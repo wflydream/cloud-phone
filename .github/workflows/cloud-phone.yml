@@ -61,7 +61,18 @@ jobs:
           if ! wait_boot; then echo "BOOT FAILED $(ts)"; tail -40 /tmp/emu.log; exit 1; fi
           echo "boot $(ts)"
 
-          # 先把画面和隧道立起来，再慢慢调语言/装 App
+          # 分辨率必须在 scrcpy 之前定好：启动后再改 wm size 会让 scrcpy 直接退出（黑屏）
+          adb shell wm size 720x1280; adb shell wm density 320
+          for s in window_animation_scale transition_animation_scale animator_duration_scale; do adb shell settings put global $s 0; done
+          adb shell input keyevent KEYCODE_WAKEUP; adb shell wm dismiss-keyguard || true
+
+          # scrcpy 守护：挂了自动重启
+          ( while true; do
+              DISPLAY=:99 LIBGL_ALWAYS_SOFTWARE=1 SDL_RENDER_DRIVER=software \
+                scrcpy --max-size 720 --max-fps 30 --video-bit-rate 2M --no-audio --window-title phone >> /tmp/scrcpy.log 2>&1
+              sleep 3
+            done ) &
+
           LIBGL_ALWAYS_SOFTWARE=1 SDL_RENDER_DRIVER=software scrcpy --max-size 720 --max-fps 30 --video-bit-rate 2M --no-audio --window-title phone > /tmp/scrcpy.log 2>&1 &
           sleep 8
           pgrep -a scrcpy || { echo "SCRCPY PROBLEM"; tail -20 /tmp/scrcpy.log; }
@@ -106,9 +117,6 @@ jobs:
           adb root >/dev/null 2>&1 || true; sleep 3
           adb shell settings put system system_locales zh-CN || true
           adb shell setprop persist.sys.timezone Asia/Shanghai || true
-          adb shell wm size 720x1280; adb shell wm density 320
-          for s in window_animation_scale transition_animation_scale animator_duration_scale; do adb shell settings put global $s 0; done
-          adb shell input keyevent KEYCODE_WAKEUP; adb shell wm dismiss-keyguard || true
           adb shell settings put global auto_time 1
           echo "guest tuned $(ts)"
 
