@@ -8,6 +8,8 @@ on:
 jobs:
   phone:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
@@ -105,4 +107,9 @@ jobs:
           URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1)
           [ -n "$URL" ] || { tail -30 /tmp/tunnel.log; exit 1; }
           echo "OPEN: $URL/panel.html" | tee -a "$GITHUB_STEP_SUMMARY"
+          # 把链接发到 state 分支，本机脚本用 API 直接读，不靠扒日志
+          mkdir -p state && printf '%s\n' "$URL/panel.html" > state/url.txt
+          git add state/url.txt
+          git -c user.name=cloud-phone -c user.email=cloud-phone@users.noreply.github.com \
+            commit -qm "url $GITHUB_RUN_ID" && git push -q origin HEAD:state || echo "publish url failed"
           sleep "${MINUTES}m"
