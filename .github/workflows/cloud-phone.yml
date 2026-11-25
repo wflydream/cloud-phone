@@ -71,21 +71,6 @@ jobs:
           adb shell input keyevent KEYCODE_WAKEUP; adb shell wm dismiss-keyguard || true
           adb shell settings put global auto_time 1
 
-          # TikTok：APKPure 直链（APK，失败再试 XAPK 解包安装）；装不上不算失败，Chrome 里也能开 tiktok.com
-          curl -sL --max-time 180 -A 'Mozilla/5.0 (Linux; Android 14)' -o /tmp/tiktok.bin \
-            'https://d.apkpure.com/b/APK/com.zhiliaoapp.musically?version=latest' || true
-          echo "tiktok dl bytes: $(stat -c%s /tmp/tiktok.bin 2>/dev/null || echo 0)"
-          file /tmp/tiktok.bin; head -c 4 /tmp/tiktok.bin | xxd -p
-          if [ "$(head -c 2 /tmp/tiktok.bin)" = "PK" ]; then
-            rm -rf /tmp/tkx && mkdir /tmp/tkx && unzip -oq /tmp/tiktok.bin -d /tmp/tkx
-            APKS=$(find /tmp/tkx -name '*.apk' | tr '\n' ' ')
-            echo "apk count: $(echo $APKS | wc -w)"
-            if [ -n "$APKS" ]; then adb install-multiple -r $APKS 2>&1 | tail -4; else adb install -r /tmp/tiktok.bin 2>&1 | tail -4; fi
-          else
-            adb install -r /tmp/tiktok.bin 2>&1 | tail -4
-          fi
-          adb shell pm list packages | grep -c musically || true
-          adb shell monkey -p com.zhiliaoapp.musically -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
 
           LIBGL_ALWAYS_SOFTWARE=1 SDL_RENDER_DRIVER=software scrcpy --max-size 720 --max-fps 30 --video-bit-rate 2M --no-audio --window-title phone > /tmp/scrcpy.log 2>&1 &
           sleep 8
@@ -112,4 +97,19 @@ jobs:
           git add state/url.txt
           git -c user.name=cloud-phone -c user.email=cloud-phone@users.noreply.github.com \
             commit -qm "url $GITHUB_RUN_ID" && git push -q origin HEAD:state || echo "publish url failed"
+          # TikTok：APKPure 直链（APK，失败再试 XAPK 解包安装）；装不上不算失败，Chrome 里也能开 tiktok.com
+          curl -sL --max-time 180 -A 'Mozilla/5.0 (Linux; Android 14)' -o /tmp/tiktok.bin \
+            'https://d.apkpure.com/b/APK/com.zhiliaoapp.musically?version=latest' || true
+          echo "tiktok dl bytes: $(stat -c%s /tmp/tiktok.bin 2>/dev/null || echo 0)"
+          file /tmp/tiktok.bin; head -c 4 /tmp/tiktok.bin | xxd -p
+          if [ "$(head -c 2 /tmp/tiktok.bin)" = "PK" ]; then
+            rm -rf /tmp/tkx && mkdir /tmp/tkx && unzip -oq /tmp/tiktok.bin -d /tmp/tkx
+            APKS=$(find /tmp/tkx -name '*.apk' | tr '\n' ' ')
+            echo "apk count: $(echo $APKS | wc -w)"
+            if [ -n "$APKS" ]; then adb install-multiple -r $APKS 2>&1 | tail -4; else adb install -r /tmp/tiktok.bin 2>&1 | tail -4; fi
+          else
+            adb install -r /tmp/tiktok.bin 2>&1 | tail -4
+          fi
+          adb shell pm list packages | grep -c musically || true
+          adb shell monkey -p com.zhiliaoapp.musically -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
           sleep "${MINUTES}m"
