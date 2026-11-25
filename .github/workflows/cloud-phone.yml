@@ -1,0 +1,44 @@
+name: cloud-phone
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Keep the phone alive for N minutes (max 55)"
+        default: "45"
+jobs:
+  phone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+      - name: Packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb x11vnc novnc websockify >/dev/null
+      - name: AVD
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "system-images;android-34;google_apis;x86_64" >/dev/null
+          echo no | "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" create avd -n phone -k "system-images;android-34;google_apis;x86_64" -d pixel_6 >/dev/null
+      - name: Phone on :99 + browser VNC
+        env: { MINUTES: "${{ inputs.minutes }}" }
+        run: |
+          Xvfb :99 -screen 0 1400x1000x24 >/dev/null 2>&1 &
+          export DISPLAY=:99
+          "$ANDROID_HOME/emulator/emulator" -avd phone -no-audio -no-boot-anim -no-snapshot -memory 3072 -gpu swiftshader_indirect &
+          adb wait-for-device
+          adb shell 'while [ "$(getprop sys.boot_completed)" != 1 ]; do sleep 2; done'
+          adb shell input keyevent KEYCODE_WAKEUP; adb shell wm dismiss-keyguard || true
+          curl -sL -o /tmp/fdroid.apk https://f-droid.org/F-Droid.apk && adb install -r /tmp/fdroid.apk >/dev/null 2>&1 || true
+          x11vnc -display :99 -forever -shared -nopw -noxdamage -rfbport 5900 -quiet >/dev/null 2>&1 &
+          websockify --web=/usr/share/novnc 6080 localhost:5900 >/dev/null 2>&1 &
+          curl -sL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x /tmp/cloudflared
+          /tmp/cloudflared tunnel --url http://localhost:6080 --no-autoupdate > /tmp/tunnel.log 2>&1 &
+          for i in $(seq 1 40); do grep -q trycloudflare /tmp/tunnel.log && break; sleep 2; done
+          URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1)
+          echo "OPEN: $URL/vnc.html?autoconnect=true&resize=scale&reconnect=true" | tee -a "$GITHUB_STEP_SUMMARY"
+          sleep "${MINUTES}m"
