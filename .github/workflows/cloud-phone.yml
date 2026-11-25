@@ -91,7 +91,7 @@ jobs:
 
           curl -sL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x /tmp/cloudflared
-          /tmp/cloudflared tunnel --url http://localhost:8080 --no-autoupdate --protocol quic > /tmp/tunnel.log 2>&1 &
+          /tmp/cloudflared tunnel --url http://localhost:8080 --no-autoupdate --protocol http2 > /tmp/tunnel.log 2>&1 &
           for i in $(seq 1 90); do grep -qE "https://[a-z0-9-]+\.trycloudflare\.com" /tmp/tunnel.log && break; sleep 2; done
           URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1)
           [ -n "$URL" ] || { tail -30 /tmp/tunnel.log; exit 1; }
