@@ -63,6 +63,20 @@ class H(BaseHTTPRequestHandler):
                 self._send(open(f, "rb").read(), "image/png")
             else:
                 self.send_error(404)
+        elif u.path == "/api/sh":
+            c = (parse_qs(u.query).get("cmd") or [""])[0]
+            out = subprocess.run(["adb","shell",c], capture_output=True, timeout=30).stdout.decode(errors="replace")
+            self._send(out or "(no output)", "text/plain")
+        elif u.path == "/api/tap":
+            q = parse_qs(u.query)
+            cx, cy = int(q["x"][0]), int(q["y"][0])
+            sh("input", "tap", str(cx), str(cy))
+            self._send('{"r":"ok"}')
+        elif u.path == "/api/swipe":
+            q = parse_qs(u.query)
+            a = [int(q[k][0]) for k in ("x1","y1","x2","y2")]
+            sh("input", "swipe", *map(str, a), "300")
+            self._send('{"r":"ok"}')
         elif u.path == "/api/shot":
             cmd("shot")
             self._send('{"r":"ok","url":"/shots/latest.png?%d"}' % time.time())
