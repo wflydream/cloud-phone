@@ -69,7 +69,7 @@ jobs:
           # scrcpy 守护：挂了自动重启
           ( while true; do
               DISPLAY=:99 LIBGL_ALWAYS_SOFTWARE=1 SDL_RENDER_DRIVER=software \
-                scrcpy --max-size 720 --max-fps 30 --video-bit-rate 2M --no-audio --window-title phone >> /tmp/scrcpy.log 2>&1
+                scrcpy --max-size 720 --max-fps 30 --video-bit-rate 2M --no-audio --window-title phone >> /tmp/scrcpy.log 2>&1 || true
               sleep 3
             done ) &
 
