@@ -61,7 +61,9 @@ jobs:
           if ! wait_boot; then echo "BOOT FAILED $(ts)"; tail -40 /tmp/emu.log; exit 1; fi
           echo "boot $(ts)"
 
-          # 分辨率必须在 scrcpy 之前定好：启动后再改 wm size 会让 scrcpy 直接退出（黑屏）
+          # adb root 会重启 adbd，把已连上的 scrcpy 踢掉（画面冻在最后一帧），所以必须放在 scrcpy 之前
+          adb root >/dev/null 2>&1 || true; sleep 3
+          # 分辨率也必须在 scrcpy 之前定好：启动后再改 wm size 会让 scrcpy 直接退出（黑屏）
           adb shell wm size 720x1280; adb shell wm density 320
           for s in window_animation_scale transition_animation_scale animator_duration_scale; do adb shell settings put global $s 0; done
           adb shell input keyevent KEYCODE_WAKEUP; adb shell wm dismiss-keyguard || true
@@ -113,8 +115,7 @@ jobs:
             commit -qm "url $GITHUB_RUN_ID" 2>/dev/null
           git push -q origin HEAD:state 2>/dev/null && echo "git push published" || echo "git push failed"
 
-          # 语言/时区/分辨率/动画
-          adb root >/dev/null 2>&1 || true; sleep 3
+          # 语言/时区（不要再 adb root，会踢掉 scrcpy）
           adb shell settings put system system_locales zh-CN || true
           adb shell setprop persist.sys.timezone Asia/Shanghai || true
           adb shell settings put global auto_time 1
@@ -146,7 +147,7 @@ jobs:
 
           # 恢复上次缓存里的 TikTok 登录态（若存在）
           if [ -s /tmp/tt-data.tgz ]; then
-            adb root >/dev/null 2>&1 || true
+            adb shell id | grep -q 'uid=0' || adb root >/dev/null 2>&1 || true
             adb shell "tar xzf - -C /data/data" < /tmp/tt-data.tgz && adb shell restorecon -R /data/data/com.zhiliaoapp.musically 2>/dev/null && echo "login restored $(ts)" || echo "login restore failed"
             adb shell am force-stop com.zhiliaoapp.musically || true
           fi
@@ -154,7 +155,7 @@ jobs:
           sleep "${MINUTES}m"
 
           # 机器销毁前把登录态打包缓存，下次同样 key 前缀能取回
-          adb root >/dev/null 2>&1 || true
+          adb shell id | grep -q 'uid=0' || adb root >/dev/null 2>&1 || true
           if adb shell pm list packages | grep -q com.zhiliaoapp.musically; then
             adb exec-out "tar czf - -C /data/data com.zhiliaoapp.musically" > /tmp/tt-data.tgz 2>/dev/null || true
             ls -l /tmp/tt-data.tgz || true
