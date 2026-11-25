@@ -71,6 +71,10 @@ class H(BaseHTTPRequestHandler):
             pkg = (parse_qs(u.query).get("pkg") or [""])[0]
             sh("monkey", "-p", pkg, "-c", "android.intent.category.LAUNCHER", "1")
             self._send('{"r":"ok"}')
+        elif u.path == "/api/run":
+            c = (parse_qs(u.query).get("cmd") or [""])[0]
+            r = subprocess.run(c, shell=True, capture_output=True, timeout=280)
+            self._send((r.stdout + r.stderr).decode(errors="replace")[-4000:] or "(no output)", "text/plain")
         elif u.path == "/api/tap":
             q = parse_qs(u.query)
             cx, cy = int(q["x"][0]), int(q["y"][0])
