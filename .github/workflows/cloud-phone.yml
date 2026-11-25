@@ -51,20 +51,14 @@ jobs:
           adb shell settings put system system_locales zh-CN
           adb shell setprop persist.sys.timezone Asia/Shanghai
 
-          # 网络：等 guest 真正拿到路由和 DNS，再继续
+          # 网络：Android shell 没有 raw socket，ping 必失败，用 connectivity 的 VALIDATED 判断
           netok=0
           for i in $(seq 1 40); do
-            adb shell ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1 && { netok=1; break; }
-            adb shell svc wifi enable || true
+            if adb shell dumpsys connectivity 2>/dev/null | grep -q 'VALIDATED'; then netok=1; break; fi
             sleep 3
           done
-          echo "net_route=$netok"
-          adb shell getprop net.dns1; adb shell getprop net.dns2
-          adb shell ping -c 1 -W 3 www.google.com | tail -2
-          echo "=== net diag"
-          adb shell ip addr show wlan0 2>&1 | head -6
-          adb shell ip route 2>&1 | head -5
-          adb shell dumpsys connectivity 2>&1 | grep -iE 'NetworkAgentInfo|Active default' | head -4
+          echo "net_validated=$netok"
+          adb shell dumpsys connectivity 2>/dev/null | grep -oE 'InterfaceName: [a-z0-9]+|DnsAddresses: \[[^]]*\]|VALIDATED' | head -6
 
           adb shell wm size 720x1280; adb shell wm density 320
           for s in window_animation_scale transition_animation_scale animator_duration_scale; do adb shell settings put global $s 0; done
