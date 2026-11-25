@@ -24,6 +24,7 @@
     <button data-app="com.android.chrome">🌐 Chrome</button>
     <button data-app="com.google.android.youtube">▶ YouTube</button>
     <button data-app="com.zhiliaoapp.musically">♪ TikTok</button>
+    <button data-open="https://www.tiktok.com/">🎬 TikTok 网页版</button>
     <a id="shotlink" target="_blank" style="display:none">看截图</a>
   </div>
   <iframe id="vnc" src="/vnc.html?autoconnect=true&resize=scale&reconnect=true&compression=1&quality=6"></iframe>
@@ -31,6 +32,9 @@
 <script>
 for (const b of document.querySelectorAll('button[data-c]')) {
   b.onclick = () => fetch('/api/cmd?c=' + b.dataset.c);
+}
+for (const b of document.querySelectorAll('button[data-open]')) {
+  b.onclick = () => fetch('/api/open?url=' + encodeURIComponent(b.dataset.open));
 }
 for (const b of document.querySelectorAll('button[data-app]')) {
   b.onclick = () => fetch('/api/app?pkg=' + b.dataset.app);
