@@ -31,7 +31,12 @@ jobs:
           avdmanager list device -c | tr '\n' ' ' | head -c 600; echo
           DEV=$(avdmanager list device -c | grep -qx pixel_6 && echo pixel_6 || echo pixel)
           echo no | avdmanager create avd -n phone -k "system-images;android-34;google_apis;x86_64" -d "$DEV" || true
-          avdmanager list avd; emulator -list-avds
+          avdmanager list avd
+          AVD_DIR=$(avdmanager list avd | sed -n 's/.*Path: \(.*\)\/[^/]*$/\1/p' | head -1)
+          echo "avd dir: $AVD_DIR"
+          echo "ANDROID_AVD_HOME=$AVD_DIR" >> "$GITHUB_ENV"
+          ANDROID_AVD_HOME="$AVD_DIR" emulator -list-avds | tee /tmp/avds.txt
+          grep -qx phone /tmp/avds.txt
       - name: Phone on :99 + browser VNC
         env: { MINUTES: "${{ inputs.minutes }}" }
         run: |
