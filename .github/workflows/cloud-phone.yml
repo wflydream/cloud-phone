@@ -40,37 +40,55 @@ jobs:
           Xvfb :99 -screen 0 1000x900x24 >/dev/null 2>&1 &
           export DISPLAY=:99
           emulator -avd phone -no-window -no-audio -no-boot-anim -no-snapshot -memory 2048 -cores 2 \
-            -gpu swiftshader_indirect -dns-server 1.1.1.1,8.8.8.8 -netdelay none -netspeed full \
+            -gpu swiftshader_indirect -netdelay none -netspeed full \
             > /tmp/emu.log 2>&1 &
           wait_boot() { timeout 420 bash -c 'until adb shell getprop sys.boot_completed 2>/dev/null | grep -q 1; do sleep 5; done'; }
           if ! wait_boot; then echo "BOOT FAILED"; tail -40 /tmp/emu.log; exit 1; fi
 
           adb root >/dev/null 2>&1; sleep 3
-          adb shell setprop persist.sys.locale zh-CN
+          adb shell settings put system system_locales zh-CN
           adb shell setprop persist.sys.timezone Asia/Shanghai
-          adb reboot
-          sleep 5
-          if ! wait_boot; then echo "REBOOT FAILED"; tail -40 /tmp/emu.log; exit 1; fi
+
+          # 网络：等 guest 真正拿到路由和 DNS，再继续
+          netok=0
+          for i in $(seq 1 40); do
+            adb shell ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1 && { netok=1; break; }
+            adb shell svc wifi enable || true
+            sleep 3
+          done
+          echo "net_route=$netok"
+          adb shell getprop net.dns1; adb shell getprop net.dns2
+          adb shell ping -c 1 -W 3 www.google.com | tail -2
 
           adb shell wm size 720x1280; adb shell wm density 320
           for s in window_animation_scale transition_animation_scale animator_duration_scale; do adb shell settings put global $s 0; done
           adb shell input keyevent KEYCODE_WAKEUP; adb shell wm dismiss-keyguard || true
           adb shell settings put global auto_time 1
 
-          echo "=== net checks"
-          adb shell getprop net.dns1
-          adb shell ping -c 1 -W 3 1.1.1.1 | tail -2
-          adb shell ping -c 1 -W 3 www.google.com | tail -2
+          # TikTok：APKPure 直链（APK，失败再试 XAPK 解包安装）；装不上不算失败，Chrome 里也能开 tiktok.com
+          curl -sL --max-time 180 -A 'Mozilla/5.0 (Linux; Android 14)' -o /tmp/tiktok.bin \
+            'https://d.apkpure.com/b/APK/com.zhiliaoapp.musically?version=latest' || true
+          echo "tiktok dl bytes: $(stat -c%s /tmp/tiktok.bin 2>/dev/null || echo 0)"
+          if unzip -l /tmp/tiktok.bin >/dev/null 2>&1; then
+            if unzip -l /tmp/tiktok.bin | grep -q 'base.apk'; then
+              rm -rf /tmp/tkx && mkdir /tmp/tkx && unzip -q /tmp/tiktok.bin -d /tmp/tkx
+              adb install-multiple -r $(find /tmp/tkx -name '*.apk' | tr '\n' ' ') >/dev/null 2>&1 && echo "tiktok installed (xapk)" || echo "tiktok install failed (xapk)"
+            else
+              adb install -r /tmp/tiktok.bin >/dev/null 2>&1 && echo "tiktok installed" || echo "tiktok install failed"
+            fi
+          else
+            echo "tiktok download failed"
+          fi
+          adb shell pm list packages | grep -c musically || true
+          adb shell monkey -p com.zhiliaoapp.musically -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
 
-          curl -sL -o /tmp/fdroid.apk https://f-droid.org/F-Droid.apk && adb install -r /tmp/fdroid.apk >/dev/null 2>&1 || true
-
-          LIBGL_ALWAYS_SOFTWARE=1 SDL_RENDER_DRIVER=software scrcpy --max-size 720 --max-fps 30 --bit-rate 2M --no-audio --window-title phone > /tmp/scrcpy.log 2>&1 &
+          LIBGL_ALWAYS_SOFTWARE=1 SDL_RENDER_DRIVER=software scrcpy --max-size 720 --max-fps 30 --video-bit-rate 2M --no-audio --window-title phone > /tmp/scrcpy.log 2>&1 &
           sleep 8
           pgrep -a scrcpy || { echo "SCRCPY PROBLEM"; tail -20 /tmp/scrcpy.log; }
 
           x11vnc -display :99 -forever -shared -nopw -rfbport 5900 -quiet -wait 5 -defer 0 > /tmp/x11vnc.log 2>&1 &
           websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/websockify.log 2>&1 &
-          cp panel.html /usr/share/novnc/panel.html
+          sudo cp panel.html /usr/share/novnc/panel.html
           python3 control.py > /tmp/control.log 2>&1 &
           sudo nginx -c "$PWD/nginx.conf" -g 'daemon off;' > /tmp/nginx.log 2>&1 &
           sleep 3
