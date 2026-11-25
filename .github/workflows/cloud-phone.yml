@@ -78,7 +78,7 @@ jobs:
           sleep 8
           pgrep -a scrcpy || { echo "SCRCPY PROBLEM"; tail -20 /tmp/scrcpy.log; }
 
-          x11vnc -display :99 -forever -shared -nopw -rfbport 5900 -quiet -wait 2 -defer 0 -threads 2 > /tmp/x11vnc.log 2>&1 &
+          x11vnc -display :99 -forever -shared -nopw -rfbport 5900 -quiet -wait 2 -defer 0 > /tmp/x11vnc.log 2>&1 &
           websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/websockify.log 2>&1 &
           sudo cp panel.html /usr/share/novnc/panel.html
           python3 control.py > /tmp/control.log 2>&1 &
