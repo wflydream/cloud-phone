@@ -5,6 +5,9 @@ on:
       minutes:
         description: "Keep the phone alive for N minutes"
         default: "50"
+      report_topic:
+        description: "可选：把链接推到 ntfy.sh/<topic>（脚本读这个，不依赖 GitHub 日志）"
+        default: ""
 jobs:
   phone:
     runs-on: ubuntu-latest
@@ -37,35 +40,21 @@ jobs:
           ANDROID_AVD_HOME="$AVD_DIR" emulator -list-avds | tee /tmp/avds.txt
           grep -qx phone /tmp/avds.txt
       - name: Phone + panel
-        env: { MINUTES: "${{ inputs.minutes }}" }
+        env:
+          MINUTES: "${{ inputs.minutes }}"
+          TOPIC: "${{ inputs.report_topic }}"
         run: |
+          ts() { date +%T; }
           Xvfb :99 -screen 0 1000x900x24 >/dev/null 2>&1 &
           export DISPLAY=:99
           emulator -avd phone -no-window -no-audio -no-boot-anim -no-snapshot -memory 2048 -cores 2 \
             -gpu swiftshader_indirect -netdelay none -netspeed full \
             > /tmp/emu.log 2>&1 &
-          wait_boot() { timeout 420 bash -c 'until adb shell getprop sys.boot_completed 2>/dev/null | grep -q 1; do sleep 5; done'; }
-          if ! wait_boot; then echo "BOOT FAILED"; tail -40 /tmp/emu.log; exit 1; fi
+          wait_boot() { timeout 480 bash -c 'until adb shell getprop sys.boot_completed 2>/dev/null | grep -q 1; do sleep 5; done'; }
+          if ! wait_boot; then echo "BOOT FAILED $(ts)"; tail -40 /tmp/emu.log; exit 1; fi
+          echo "boot $(ts)"
 
-          adb root >/dev/null 2>&1; sleep 3
-          adb shell settings put system system_locales zh-CN
-          adb shell setprop persist.sys.timezone Asia/Shanghai
-
-          # 网络：Android shell 没有 raw socket，ping 必失败，用 connectivity 的 VALIDATED 判断
-          netok=0
-          for i in $(seq 1 40); do
-            if adb shell dumpsys connectivity 2>/dev/null | grep -q 'VALIDATED'; then netok=1; break; fi
-            sleep 3
-          done
-          echo "net_validated=$netok"
-          adb shell dumpsys connectivity 2>/dev/null | grep -oE 'InterfaceName: [a-z0-9]+|DnsAddresses: \[[^]]*\]|VALIDATED' | head -6
-
-          adb shell wm size 720x1280; adb shell wm density 320
-          for s in window_animation_scale transition_animation_scale animator_duration_scale; do adb shell settings put global $s 0; done
-          adb shell input keyevent KEYCODE_WAKEUP; adb shell wm dismiss-keyguard || true
-          adb shell settings put global auto_time 1
-
-
+          # 先把画面和隧道立起来，再慢慢调语言/装 App
           LIBGL_ALWAYS_SOFTWARE=1 SDL_RENDER_DRIVER=software scrcpy --max-size 720 --max-fps 30 --video-bit-rate 2M --no-audio --window-title phone > /tmp/scrcpy.log 2>&1 &
           sleep 8
           pgrep -a scrcpy || { echo "SCRCPY PROBLEM"; tail -20 /tmp/scrcpy.log; }
@@ -77,7 +66,7 @@ jobs:
           sudo nginx -c "$PWD/nginx.conf" -g 'daemon off;' > /tmp/nginx.log 2>&1 &
           sleep 3
           curl -s -o /dev/null -w 'panel http=%{http_code}\n' http://127.0.0.1:8080/panel.html
-          curl -s http://127.0.0.1:8080/api/cmd?c=home; echo
+          echo "panel $(ts)"
 
           curl -sL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x /tmp/cloudflared
@@ -85,35 +74,59 @@ jobs:
           for i in $(seq 1 90); do grep -qE "https://[a-z0-9-]+\.trycloudflare\.com" /tmp/tunnel.log && break; sleep 2; done
           URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1)
           [ -n "$URL" ] || { tail -30 /tmp/tunnel.log; exit 1; }
-          echo "OPEN: $URL/panel.html" | tee -a "$GITHUB_STEP_SUMMARY"
-          # 把链接发到 state 分支（先走 contents API，失败再 git push），本机脚本用 API 直接读
+          echo "OPEN: $URL/panel.html $(ts)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+          # 发布链接：ntfy（最简）+ state 分支 contents API + git push，三路任一成功即可
+          if [ -n "$TOPIC" ]; then
+            curl -s -m 20 -d "$URL/panel.html" "https://ntfy.sh/$TOPIC" >/dev/null && echo "ntfy published $(ts)" || echo "ntfy failed"
+          fi
           B64=$(printf '%s' "$URL/panel.html" | base64 -w0)
           OLD=$(GH_TOKEN="$GITHUB_TOKEN" gh api "repos/$GITHUB_REPOSITORY/contents/state/url.txt?ref=state" -q .sha 2>/dev/null || true)
           for i in 1 2 3; do
             if GH_TOKEN="$GITHUB_TOKEN" gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/state/url.txt" \
                  -f message="url $GITHUB_RUN_ID" -f content="$B64" ${OLD:+-f sha="$OLD"} -f branch=state >/dev/null 2>&1; then
-              echo "url published via api"; break
+              echo "state api published $(ts)"; break
             fi
             sleep 3
           done
-          if [ -z "${OLD:-}" ] || true; then :; fi
           mkdir -p state && printf '%s\n' "$URL/panel.html" > state/url.txt
           git add state/url.txt
           git -c user.name=cloud-phone -c user.email=cloud-phone@users.noreply.github.com \
-            commit -qm "url $GITHUB_RUN_ID" 2>/dev/null; git push -q origin HEAD:state 2>/dev/null || echo "git push url failed (api 可能已成功)"
-          # TikTok：APKPure 直链（APK，失败再试 XAPK 解包安装）；装不上不算失败，Chrome 里也能开 tiktok.com
-          curl -sL --max-time 180 -A 'Mozilla/5.0 (Linux; Android 14)' -o /tmp/tiktok.bin \
+            commit -qm "url $GITHUB_RUN_ID" 2>/dev/null
+          git push -q origin HEAD:state 2>/dev/null && echo "git push published" || echo "git push failed"
+
+          # 语言/时区/分辨率/动画
+          adb root >/dev/null 2>&1 || true; sleep 3
+          adb shell settings put system system_locales zh-CN || true
+          adb shell setprop persist.sys.timezone Asia/Shanghai || true
+          adb shell wm size 720x1280; adb shell wm density 320
+          for s in window_animation_scale transition_animation_scale animator_duration_scale; do adb shell settings put global $s 0; done
+          adb shell input keyevent KEYCODE_WAKEUP; adb shell wm dismiss-keyguard || true
+          adb shell settings put global auto_time 1
+          echo "guest tuned $(ts)"
+
+          # 网络判据：VALIDATED（Android shell 的 ping 没有 raw socket 权限，必失败）
+          netok=0
+          for i in $(seq 1 30); do
+            if adb shell dumpsys connectivity 2>/dev/null | grep -q 'VALIDATED'; then netok=1; break; fi
+            sleep 3
+          done
+          echo "net_validated=$netok $(ts)"
+          adb shell dumpsys connectivity 2>/dev/null | grep -oE 'InterfaceName: [a-z0-9]+|DnsAddresses: \[[^]]*\]|VALIDATED' | head -6
+
+          # TikTok：APKPure 直链，APK 或 XAPK 都处理；时间都封顶，装不上不算 job 失败
+          curl -sL --max-time 240 -A 'Mozilla/5.0 (Linux; Android 14)' -o /tmp/tiktok.bin \
             'https://d.apkpure.com/b/APK/com.zhiliaoapp.musically?version=latest' || true
-          echo "tiktok dl bytes: $(stat -c%s /tmp/tiktok.bin 2>/dev/null || echo 0)"
-          file /tmp/tiktok.bin; head -c 4 /tmp/tiktok.bin | xxd -p
+          echo "tiktok dl bytes: $(stat -c%s /tmp/tiktok.bin 2>/dev/null || echo 0) $(ts)"
           if [ "$(head -c 2 /tmp/tiktok.bin)" = "PK" ]; then
             rm -rf /tmp/tkx && mkdir /tmp/tkx && unzip -oq /tmp/tiktok.bin -d /tmp/tkx
             APKS=$(find /tmp/tkx -name '*.apk' | tr '\n' ' ')
-            echo "apk count: $(echo $APKS | wc -w)"
             if [ -n "$APKS" ]; then timeout 300 adb install-multiple -r $APKS 2>&1 | tail -4; else timeout 300 adb install -r /tmp/tiktok.bin 2>&1 | tail -4; fi
           else
             timeout 300 adb install -r /tmp/tiktok.bin 2>&1 | tail -4
           fi
-          adb shell pm list packages | grep -c musically || true
+          adb shell pm list packages | grep musically || echo "tiktok not installed"
           adb shell monkey -p com.zhiliaoapp.musically -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
+          echo "tiktok step done $(ts)"
+
           sleep "${MINUTES}m"
