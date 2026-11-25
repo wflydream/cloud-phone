@@ -63,22 +63,22 @@ jobs:
           # adb root 会重启 adbd，把已连上的 scrcpy 踢掉（画面冻在最后一帧），所以必须放在 scrcpy 之前
           adb root >/dev/null 2>&1 || true; sleep 3
           # 分辨率也必须在 scrcpy 之前定好：启动后再改 wm size 会让 scrcpy 直接退出（黑屏）
-          adb shell wm size 720x1280; adb shell wm density 320
+          adb shell wm size 540x960; adb shell wm density 240
           for s in window_animation_scale transition_animation_scale animator_duration_scale; do adb shell settings put global $s 0; done
           adb shell input keyevent KEYCODE_WAKEUP; adb shell wm dismiss-keyguard || true
 
           # scrcpy 守护：挂了自动重启
           ( while true; do
               DISPLAY=:99 LIBGL_ALWAYS_SOFTWARE=1 SDL_RENDER_DRIVER=software \
-                scrcpy --max-size 720 --max-fps 30 --video-bit-rate 2M --no-audio --window-title phone >> /tmp/scrcpy.log 2>&1 || true
+                scrcpy --max-size 540 --max-fps 30 --video-bit-rate 1M --no-audio --window-title phone >> /tmp/scrcpy.log 2>&1 || true
               sleep 3
             done ) &
 
-          LIBGL_ALWAYS_SOFTWARE=1 SDL_RENDER_DRIVER=software scrcpy --max-size 720 --max-fps 30 --video-bit-rate 2M --no-audio --window-title phone > /tmp/scrcpy.log 2>&1 &
+          LIBGL_ALWAYS_SOFTWARE=1 SDL_RENDER_DRIVER=software scrcpy --max-size 540 --max-fps 30 --video-bit-rate 1M --no-audio --window-title phone > /tmp/scrcpy.log 2>&1 &
           sleep 8
           pgrep -a scrcpy || { echo "SCRCPY PROBLEM"; tail -20 /tmp/scrcpy.log; }
 
-          x11vnc -display :99 -forever -shared -nopw -rfbport 5900 -quiet -wait 5 -defer 0 > /tmp/x11vnc.log 2>&1 &
+          x11vnc -display :99 -forever -shared -nopw -rfbport 5900 -quiet -wait 2 -defer 0 -threads 2 > /tmp/x11vnc.log 2>&1 &
           websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/websockify.log 2>&1 &
           sudo cp panel.html /usr/share/novnc/panel.html
           python3 control.py > /tmp/control.log 2>&1 &
@@ -91,7 +91,7 @@ jobs:
 
           curl -sL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x /tmp/cloudflared
-          /tmp/cloudflared tunnel --url http://localhost:8080 --no-autoupdate --protocol http2 > /tmp/tunnel.log 2>&1 &
+          /tmp/cloudflared tunnel --url http://localhost:8080 --no-autoupdate --protocol quic > /tmp/tunnel.log 2>&1 &
           for i in $(seq 1 90); do grep -qE "https://[a-z0-9-]+\.trycloudflare\.com" /tmp/tunnel.log && break; sleep 2; done
           URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1)
           [ -n "$URL" ] || { tail -30 /tmp/tunnel.log; exit 1; }
