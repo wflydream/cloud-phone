@@ -40,18 +40,19 @@ jobs:
       - name: Phone on :99 + browser VNC
         env: { MINUTES: "${{ inputs.minutes }}" }
         run: |
-          Xvfb :99 -screen 0 1400x1000x24 >/dev/null 2>&1 &
+          Xvfb :99 -screen 0 1000x900x24 >/dev/null 2>&1 &
           export DISPLAY=:99
           emulator -avd phone -no-window -no-audio -no-boot-anim -no-snapshot -memory 3072 -gpu swiftshader_indirect > /tmp/emu.log 2>&1 &
           if ! timeout 420 bash -c 'until adb shell getprop sys.boot_completed 2>/dev/null | grep -q 1; do sleep 5; done'; then
             echo "BOOT FAILED"; tail -40 /tmp/emu.log; exit 1
           fi
           adb shell input keyevent KEYCODE_WAKEUP; adb shell wm dismiss-keyguard || true
+          adb shell wm size 720x1280; adb shell wm density 320
           curl -sL -o /tmp/fdroid.apk https://f-droid.org/F-Droid.apk && adb install -r /tmp/fdroid.apk >/dev/null 2>&1 || true
-          LIBGL_ALWAYS_SOFTWARE=1 SDL_RENDER_DRIVER=software scrcpy --max-size 1024 --no-audio --window-title phone > /tmp/scrcpy.log 2>&1 &
+          LIBGL_ALWAYS_SOFTWARE=1 SDL_RENDER_DRIVER=software scrcpy --max-size 720 --max-fps 30 --bit-rate 2M --no-audio --window-title phone > /tmp/scrcpy.log 2>&1 &
           sleep 10
           pgrep -a scrcpy || { echo "SCRCPY PROBLEM"; tail -20 /tmp/scrcpy.log; }
-          x11vnc -display :99 -forever -shared -nopw -noxdamage -rfbport 5900 -quiet > /tmp/x11vnc.log 2>&1 &
+          x11vnc -display :99 -forever -shared -nopw -rfbport 5900 -quiet -wait 5 -defer 0 > /tmp/x11vnc.log 2>&1 &
           websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/websockify.log 2>&1 &
           curl -sL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x /tmp/cloudflared
