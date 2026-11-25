@@ -55,9 +55,9 @@ jobs:
           websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/websockify.log 2>&1 &
           curl -sL -o /tmp/cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x /tmp/cloudflared
-          /tmp/cloudflared tunnel --url http://localhost:6080 --no-autoupdate > /tmp/tunnel.log 2>&1 &
-          for i in $(seq 1 40); do grep -q trycloudflare /tmp/tunnel.log && break; sleep 2; done
+          /tmp/cloudflared tunnel --url http://localhost:6080 --no-autoupdate --protocol http2 > /tmp/tunnel.log 2>&1 &
+          for i in $(seq 1 90); do grep -qE "https://[a-z0-9-]+\.trycloudflare\.com" /tmp/tunnel.log && break; sleep 2; done
           URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1)
-          [ -n "$URL" ] || { cat /tmp/tunnel.log; exit 1; }
+          [ -n "$URL" ] || { tail -30 /tmp/tunnel.log; exit 1; }
           echo "OPEN: $URL/vnc.html?autoconnect=true&resize=scale&reconnect=true" | tee -a "$GITHUB_STEP_SUMMARY"
           sleep "${MINUTES}m"
