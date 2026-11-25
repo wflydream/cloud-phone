@@ -1,0 +1,38 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>cloud phone</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;color:#ddd;font:13px system-ui}
+  .wrap{display:flex;height:100%}
+  .bar{width:104px;padding:8px 6px;display:flex;flex-direction:column;gap:6px;background:#1b1b1b;overflow:auto}
+  button{background:#2a2a2a;color:#ddd;border:1px solid #3a3a3a;border-radius:6px;padding:8px 4px;font-size:13px;cursor:pointer}
+  button:active{background:#3a5}
+  iframe{flex:1;border:0}
+  a{color:#8cf}
+</style>
+<div class="wrap">
+  <div class="bar">
+    <button data-c="back">← 返回</button>
+    <button data-c="home">⌂ 桌面</button>
+    <button data-c="recents">▢ 任务</button>
+    <button data-c="rotl">↺ 左转</button>
+    <button data-c="rotr">↻ 右转</button>
+    <button data-c="volup">🔊 +</button>
+    <button data-c="voldown">🔉 −</button>
+    <button data-c="power">⏻ 电源</button>
+    <button id="shot">📷 截图</button>
+    <a id="shotlink" target="_blank" style="display:none">看截图</a>
+  </div>
+  <iframe id="vnc" src="/vnc.html?autoconnect=true&resize=scale&reconnect=true&compression=1&quality=6"></iframe>
+</div>
+<script>
+for (const b of document.querySelectorAll('button[data-c]')) {
+  b.onclick = () => fetch('/api/cmd?c=' + b.dataset.c);
+}
+document.getElementById('shot').onclick = async () => {
+  const r = await (await fetch('/api/shot')).json();
+  const a = document.getElementById('shotlink');
+  a.href = r.url; a.style.display = 'block'; a.textContent = '看截图';
+  window.open(r.url, '_blank');
+};
+</script>
