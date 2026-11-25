@@ -106,9 +106,9 @@ jobs:
             rm -rf /tmp/tkx && mkdir /tmp/tkx && unzip -oq /tmp/tiktok.bin -d /tmp/tkx
             APKS=$(find /tmp/tkx -name '*.apk' | tr '\n' ' ')
             echo "apk count: $(echo $APKS | wc -w)"
-            if [ -n "$APKS" ]; then adb install-multiple -r $APKS 2>&1 | tail -4; else adb install -r /tmp/tiktok.bin 2>&1 | tail -4; fi
+            if [ -n "$APKS" ]; then timeout 300 adb install-multiple -r $APKS 2>&1 | tail -4; else timeout 300 adb install -r /tmp/tiktok.bin 2>&1 | tail -4; fi
           else
-            adb install -r /tmp/tiktok.bin 2>&1 | tail -4
+            timeout 300 adb install -r /tmp/tiktok.bin 2>&1 | tail -4
           fi
           adb shell pm list packages | grep -c musically || true
           adb shell monkey -p com.zhiliaoapp.musically -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
