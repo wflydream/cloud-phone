@@ -70,9 +70,16 @@ python3 drive.py <url> shot out.png
 - 中文语言：`settings put system system_locales zh-CN`；时区 `setprop persist.sys.timezone Asia/Shanghai`。
 - 出口 IP 是 GitHub（Azure 美国机房）：普通站点能上；风控严格的 App 可能被判定为机房流量。
 
+## 仓库已转 public：怎么保证别人拿不到
+
+- 公开仓库的日志/Summary 里**不出现隧道 URL**：workflow 只把 URL 写进私有仓库 `wflydream/cloud-phone-state` 的 `url.txt`（用 repo secret `STATE_PAT`），日志只打印 "url published"。
+- 面板/API 全部走 nginx basic auth（repo secrets `BASIC_USER` / `BASIC_PASS`，运行时生成 htpasswd），无凭据一律 401。
+- 本机账号密码存在 `.secrets/github/cloud-phone.json`；`phone.sh` 打印 URL 时一起给出。
+- ntfy 通道已移除（公开 topic 会泄露 URL）。
+
 ## 限制
 
 - 单次最长约 5 小时（job 上限 350 分钟），到期机器连同数据销毁。
-- 隧道无密码：拿到 URL 的人都能操作这台机器。只发自己；要更安全换 Tailscale 私有网 + 本机 scrcpy，或给 x11vnc 加 `-rfbauth`。
+- 现在有 basic auth：只泄露 URL 也进不去，还需要账号密码；两者都泄露才等于拿到这台机。
 - google_apis 镜像无 Play 商店；装 App 靠侧载 APK（APKPure）。
 - 模拟器没有 Play Integrity 硬件证明，TikTok 这类强风控 App 可能无法登录或推荐流为空。
