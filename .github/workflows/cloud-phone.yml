@@ -5,9 +5,6 @@ on:
       minutes:
         description: "Keep the phone alive for N minutes"
         default: "50"
-      report_topic:
-        description: "可选：把链接推到 ntfy.sh/<topic>（脚本读这个，不依赖 GitHub 日志）"
-        default: ""
 jobs:
   phone:
     runs-on: ubuntu-latest
@@ -49,7 +46,9 @@ jobs:
       - name: Phone + panel
         env:
           MINUTES: "${{ inputs.minutes }}"
-          TOPIC: "${{ inputs.report_topic }}"
+          BASIC_USER: "${{ secrets.BASIC_USER }}"
+          BASIC_PASS: "${{ secrets.BASIC_PASS }}"
+          STATE_PAT: "${{ secrets.STATE_PAT }}"
         run: |
           ts() { date +%T; }
           Xvfb :99 -screen 0 1000x900x24 >/dev/null 2>&1 &
@@ -83,6 +82,8 @@ jobs:
           websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/websockify.log 2>&1 &
           sudo cp panel.html /usr/share/novnc/panel.html
           python3 control.py > /tmp/control.log 2>&1 &
+          printf '%s:%s\n' "$BASIC_USER" "$(openssl passwd -apr1 "$BASIC_PASS")" > /tmp/.htpasswd
+          chmod 644 /tmp/.htpasswd
           sudo nginx -c "$PWD/nginx.conf" -g 'daemon off;' > /tmp/nginx.log 2>&1 &
           sleep 3
           curl -s -o /dev/null -w 'panel http=%{http_code}\n' http://127.0.0.1:8080/panel.html
@@ -94,26 +95,21 @@ jobs:
           for i in $(seq 1 90); do grep -qE "https://[a-z0-9-]+\.trycloudflare\.com" /tmp/tunnel.log && break; sleep 2; done
           URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' /tmp/tunnel.log | head -1)
           [ -n "$URL" ] || { tail -30 /tmp/tunnel.log; exit 1; }
-          echo "OPEN: $URL/panel.html $(ts)" | tee -a "$GITHUB_STEP_SUMMARY"
-
-          # 发布链接：ntfy（最简）+ state 分支 contents API + git push，三路任一成功即可
-          if [ -n "$TOPIC" ]; then
-            curl -s -m 20 -d "$URL/panel.html" "https://ntfy.sh/$TOPIC" >/dev/null && echo "ntfy published $(ts)" || echo "ntfy failed"
-          fi
-          B64=$(printf '%s' "$URL/panel.html" | base64 -w0)
-          OLD=$(GH_TOKEN="$GITHUB_TOKEN" gh api "repos/$GITHUB_REPOSITORY/contents/state/url.txt?ref=state" -q .sha 2>/dev/null || true)
+          # 链接只写进私有仓库 cloud-phone-state（公开仓库日志里不出现 URL）
+          printf '%s' "$URL/panel.html" > /tmp/url.txt
+          B64=$(base64 -w0 /tmp/url.txt)
+          OLD=$(curl -s -H "Authorization: token $STATE_PAT" \
+                 "https://api.github.com/repos/wflydream/cloud-phone-state/contents/url.txt" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("sha",""))' 2>/dev/null)
           for i in 1 2 3; do
-            if GH_TOKEN="$GITHUB_TOKEN" gh api -X PUT "repos/$GITHUB_REPOSITORY/contents/state/url.txt" \
-                 -f message="url $GITHUB_RUN_ID" -f content="$B64" ${OLD:+-f sha="$OLD"} -f branch=state >/dev/null 2>&1; then
-              echo "state api published $(ts)"; break
+            BODY=$(python3 -c 'import json,sys;print(json.dumps({"message":"url","content":sys.argv[1],**({"sha":sys.argv[2]} if sys.argv[2] else {})}))' "$B64" "$OLD")
+            if curl -s -X PUT -H "Authorization: token $STATE_PAT" \
+                 -H 'Accept: application/vnd.github+json' \
+                 -d "$BODY" \
+                 "https://api.github.com/repos/wflydream/cloud-phone-state/contents/url.txt" | grep -q '"content"'; then
+              echo "url published to private state repo $(ts)"; break
             fi
             sleep 3
           done
-          mkdir -p state && printf '%s\n' "$URL/panel.html" > state/url.txt
-          git add state/url.txt
-          git -c user.name=cloud-phone -c user.email=cloud-phone@users.noreply.github.com \
-            commit -qm "url $GITHUB_RUN_ID" 2>/dev/null
-          git push -q origin HEAD:state 2>/dev/null && echo "git push published" || echo "git push failed"
 
           # 语言/时区（不要再 adb root，会踢掉 scrcpy）
           adb shell settings put system system_locales zh-CN || true
