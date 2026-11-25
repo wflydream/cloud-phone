@@ -41,7 +41,18 @@ GET /api/app?pkg=<package>
 GET /api/tap?x=<px>&y=<px>          # 设备像素
 GET /api/swipe?x1=&y1=&x2=&y2=
 GET /api/shot                       # 截图，返回 /shots/latest.png
-GET /api/sh?cmd=<adb shell 命令>     # 返回命令输出
+GET /api/sh?cmd=<adb shell 命令>     # 返回命令输出（guest 内）
+GET /api/run?cmd=<shell 命令>        # runner 上执行（下载 APK、adb install）
+```
+
+## 本机驱动脚本
+
+```
+python3 drive.py https://xxx.trycloudflare.com sh "pm list packages | grep music"
+python3 drive.py <url> tap 360 1044
+python3 drive.py <url> drag 551 788 551 688      # 自定义滚轮要真拖拽
+python3 drive.py <url> dump                       # UI 文本 + bounds
+python3 drive.py <url> shot out.png
 ```
 
 ## 性能取舍
