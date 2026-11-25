@@ -59,6 +59,10 @@ jobs:
           echo "net_route=$netok"
           adb shell getprop net.dns1; adb shell getprop net.dns2
           adb shell ping -c 1 -W 3 www.google.com | tail -2
+          echo "=== net diag"
+          adb shell ip addr show wlan0 2>&1 | head -6
+          adb shell ip route 2>&1 | head -5
+          adb shell dumpsys connectivity 2>&1 | grep -iE 'NetworkAgentInfo|Active default' | head -4
 
           adb shell wm size 720x1280; adb shell wm density 320
           for s in window_animation_scale transition_animation_scale animator_duration_scale; do adb shell settings put global $s 0; done
@@ -72,9 +76,9 @@ jobs:
           if unzip -l /tmp/tiktok.bin >/dev/null 2>&1; then
             if unzip -l /tmp/tiktok.bin | grep -q 'base.apk'; then
               rm -rf /tmp/tkx && mkdir /tmp/tkx && unzip -q /tmp/tiktok.bin -d /tmp/tkx
-              adb install-multiple -r $(find /tmp/tkx -name '*.apk' | tr '\n' ' ') >/dev/null 2>&1 && echo "tiktok installed (xapk)" || echo "tiktok install failed (xapk)"
+              adb install-multiple -r $(find /tmp/tkx -name '*.apk' | tr '\n' ' ') 2>&1 | tail -3
             else
-              adb install -r /tmp/tiktok.bin >/dev/null 2>&1 && echo "tiktok installed" || echo "tiktok install failed"
+              adb install -r /tmp/tiktok.bin 2>&1 | tail -3
             fi
           else
             echo "tiktok download failed"
