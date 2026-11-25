@@ -75,6 +75,10 @@ class H(BaseHTTPRequestHandler):
             c = (parse_qs(u.query).get("cmd") or [""])[0]
             r = subprocess.run(c, shell=True, capture_output=True, timeout=280)
             self._send((r.stdout + r.stderr).decode(errors="replace")[-4000:] or "(no output)", "text/plain")
+        elif u.path == "/api/open":
+            url = (parse_qs(u.query).get("url") or [""])[0]
+            sh("am", "start", "-a", "android.intent.action.VIEW", "-d", url, "-p", "com.android.chrome")
+            self._send('{"r":"ok"}')
         elif u.path == "/api/tap":
             q = parse_qs(u.query)
             cx, cy = int(q["x"][0]), int(q["y"][0])
